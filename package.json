@@ -1,0 +1,20 @@
+{
+	"name": "layers-osrs",
+	"module": "main.ts",
+	"type": "module",
+	"scripts": {
+		"test": "bun test",
+		"dev": "bun run --watch main.ts",
+		"build": "bun build main.ts --outdir build",
+		"start": "NODE_ENV=production bun main.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5.0.0"
+	},
+	"dependencies": {
+		"sharp": "^0.33.5"
+	}
+}
