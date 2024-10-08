@@ -58,7 +58,7 @@ for (let p = 0; p < chunks.length; p++) {
 		const x: number = parseInt(match[1], 10) * 2
 		const y: number = parseInt(match[2], 10) * 2
 
-		const current = sharp(mapPath + "2/" + planes[0] + "/" + chunkfile).resize(512, 512, {
+		const current = sharp(mapPath + "2/" + planes[p] + "/" + chunkfile).resize(512, 512, {
 			kernel: "nearest"
 		})
 
