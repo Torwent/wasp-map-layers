@@ -68,19 +68,19 @@ async function upScale() {
 	console.log("Starting upscaling for zoom 3 and 4.")
 
 	const positions: sharp.Region[] = [
-		{ left: 256, top: 0, width: 256, height: 256 },
-		{ left: 256, top: 256, width: 256, height: 256 },
 		{ left: 0, top: 256, width: 256, height: 256 },
-		{ left: 0, top: 0, width: 256, height: 256 }
+		{ left: 256, top: 256, width: 256, height: 256 },
+		{ left: 0, top: 0, width: 256, height: 256 },
+		{ left: 256, top: 0, width: 256, height: 256 }
 	]
 
 	async function createUpScaledTiles(img: sharp.Sharp, z: number, p: number, x: number, y: number) {
 		img.resize(512, 512, { kernel: "nearest" })
 
+		const upscaleTasks = []
 		for (let i = 0; i <= 3; i++) {
-			const mod = i % 2
-			const currentX: number = i < 2 ? x + mod : x
-			const currentY: number = i >= 2 ? y + mod : y
+			let currentX: number = x + (i % 2)
+			let currentY: number = y + Math.floor(i / 2)
 
 			img.extract(positions[i])
 
@@ -90,13 +90,15 @@ async function upScale() {
 			if (z === 3) {
 				const x: number = currentX * 2
 				const y: number = currentY * 2
-				await createUpScaledTiles(sharp(fileName), 4, p, x, y)
+				upscaleTasks.push(createUpScaledTiles(sharp(fileName), 4, p, x, y))
 			}
 		}
+
+		await Promise.all(upscaleTasks)
 	}
 
+	const upScaleTasks = []
 	for (let p = 0; p < chunksUp.length; p++) {
-		console.log("Upscaling zoom 3 and 4 plane", p, "/ 3")
 		for (let c = 0; c < chunksUp[p].length; c++) {
 			const chunkfile = chunksUp[p][c]
 			const match = chunkfile.match(/(\d+)-(\d+)/)
@@ -105,10 +107,12 @@ async function upScale() {
 			const x: number = parseInt(match[1], 10) * 2
 			const y: number = parseInt(match[2], 10) * 2
 
-			await createUpScaledTiles(sharp(mapPath + "2/" + planes[p] + "/" + chunkfile), 3, p, x, y)
+			upScaleTasks.push(
+				createUpScaledTiles(sharp(mapPath + "2/" + planes[p] + "/" + chunkfile), 3, p, x, y)
+			)
 		}
 	}
-
+	await Promise.all(upScaleTasks)
 	console.log(`☝️ Upscalling took ${(performance.now() - startUpscale).toFixed(2)} ms to finish!`)
 }
 
@@ -150,10 +154,9 @@ async function downScale() {
 	}
 
 	for (let z = 1; z >= -4; z--) {
-		console.log("Downscaling zoom", z, "/ -4")
-
+		console.log("📏Downscaling to zoom", z, "/ -4")
+		const zDownscaleTasks = []
 		for (let p = 0; p < chunksUp.length; p++) {
-			console.log("Downscaling zoom", z, "/ -4 plane", p, "/ 3")
 			for (let y = 0; y < hi.y; y = y + 2) {
 				for (let x = 0; x < hi.x; x = x + 2) {
 					const current = [
@@ -163,14 +166,17 @@ async function downScale() {
 						sharp(mapPath + (z + 1) + "/" + p + "/" + (x + 1) + "-" + (y + 1) + ".png")
 					]
 
-					await createDownScaledTiles(current, z, p, x, y)
+					zDownscaleTasks.push(createDownScaledTiles(current, z, p, x, y))
 				}
 			}
 		}
 
+		await Promise.all(zDownscaleTasks)
+
 		hi.y = Math.ceil(hi.y / 2)
 		hi.x = Math.ceil(hi.x / 2)
 	}
+
 	console.log(
 		`👇 Downscalling took ${(performance.now() - startDownscale).toFixed(2)} ms to finish!`
 	)
@@ -178,6 +184,6 @@ async function downScale() {
 
 console.log(`└🛠️ Setup took ${(performance.now() - start).toFixed(2)} ms to finish!`)
 
-await Promise.all([upScale(), downScale()])
+await Promise.all([downScale(), upScale()])
 
 console.log(`└✅ Done! Took ${(performance.now() - start).toFixed(2)} ms to finish!`)
