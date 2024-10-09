@@ -1,11 +1,13 @@
 import StreamZip from "node-stream-zip"
 import { existsSync, mkdirSync } from "node:fs"
 import { readdir } from "node:fs/promises"
-import sharp from "sharp"
+import sharp, { type OverlayOptions } from "sharp"
 
-const mapPath = "files/map/"
+const mapPath = "map/"
+const chunksU: string[][] = []
+const chunksD: number[][] = []
 
-const unzipFile = async () => {
+async function unzipFile() {
 	const zipFile = "files/map.zip"
 	const extractPath = mapPath + "2/"
 
@@ -22,7 +24,7 @@ const unzipFile = async () => {
 	await zip.close()
 }
 
-unzipFile()
+await unzipFile()
 
 const planes = await readdir(mapPath + "2/")
 
@@ -34,45 +36,141 @@ for (let i = -4; i <= 4; i++) {
 	}
 }
 
-let chunks: string[][] = []
-
 for (let i = 0; i < planes.length; i++) {
 	const files = await readdir(mapPath + "2/" + planes[i] + "/")
-	chunks.push(files)
+	chunksU.push(files)
 }
 
-const positions: sharp.Region[] = [
-	{ left: 256, top: 0, width: 256, height: 256 },
-	{ left: 256, top: 256, width: 256, height: 256 },
-	{ left: 0, top: 256, width: 256, height: 256 },
-	{ left: 0, top: 0, width: 256, height: 256 }
-]
+let lo = { x: 9999, y: 9999 }
+let hi = { x: 0, y: 0 }
+for (let i = 0; i < chunksU[0].length; i++) {
+	const file = chunksU[0][i]
+	const match = file.match(/(\d+)-(\d+)/)
+	if (match == null) continue
 
-for (let p = 0; p < chunks.length; p++) {
-	console.log("Writting plane " + p)
-	for (let c = 0; c < chunks[p].length; c++) {
-		const chunkfile = chunks[p][c]
-		const match = chunkfile.match(/(\d+)-(\d+)/)
-		if (match == null) continue
+	const y: number = parseInt(match[2], 10)
+	const x: number = parseInt(match[1], 10)
+	hi.y = hi.y < y ? y : hi.y
+	hi.x = hi.x < x ? x : hi.x
+	lo.y = lo.y > y ? y : lo.y
+	lo.x = lo.x > x ? x : lo.x
+}
 
-		const x: number = parseInt(match[1], 10) * 2
-		const y: number = parseInt(match[2], 10) * 2
+for (let y = 0; y <= hi.y; y++) {
+	chunksD.push([])
+	for (let x = 0; x <= hi.x; x++) {
+		chunksD[y].push(x)
+	}
+}
 
-		const current = sharp(mapPath + "2/" + planes[p] + "/" + chunkfile).resize(512, 512, {
-			kernel: "nearest"
-		})
+async function upScale() {
+	console.log("Starting upscaling for zoom 3 and 4.")
+
+	const positions: sharp.Region[] = [
+		{ left: 256, top: 0, width: 256, height: 256 },
+		{ left: 256, top: 256, width: 256, height: 256 },
+		{ left: 0, top: 256, width: 256, height: 256 },
+		{ left: 0, top: 0, width: 256, height: 256 }
+	]
+
+	async function createUpScaledTiles(img: sharp.Sharp, z: number, p: number, x: number, y: number) {
+		img.resize(512, 512, { kernel: "nearest" })
 
 		for (let i = 0; i <= 3; i++) {
 			const mod = i % 2
 			const currentX: number = i < 2 ? x + mod : x
 			const currentY: number = i >= 2 ? y + mod : y
 
-			await current
-				.extract(positions[i])
-				.toFile(mapPath + "3/" + planes[p] + "/" + currentX + "-" + currentY + ".png")
-				.catch((error) => console.error(error))
+			img.extract(positions[i])
+
+			const fileName = mapPath + z + "/" + planes[p] + "/" + currentX + "-" + currentY + ".png"
+			await img.toFile(fileName).catch((error) => console.error(error))
+
+			if (z === 3) {
+				const x: number = currentX * 2
+				const y: number = currentY * 2
+				await createUpScaledTiles(sharp(fileName), 4, p, x, y)
+			}
 		}
 	}
+
+	for (let p = 0; p < chunksU.length; p++) {
+		for (let c = 0; c < chunksU[p].length; c++) {
+			const chunkfile = chunksU[p][c]
+			const match = chunkfile.match(/(\d+)-(\d+)/)
+			if (match == null) continue
+
+			const x: number = parseInt(match[1], 10) * 2
+			const y: number = parseInt(match[2], 10) * 2
+
+			await createUpScaledTiles(sharp(mapPath + "2/" + planes[p] + "/" + chunkfile), 3, p, x, y)
+		}
+	}
+
+	console.log("Upscalling done.")
 }
+
+async function downScale() {
+	console.log("Starting downscaling for zooms 1, 0, -1, -2, -3 and -4.")
+
+	async function createDownScaledTiles(
+		imgs: sharp.Sharp[],
+		z: number,
+		p: number,
+		x: number,
+		y: number
+	) {
+		const img = sharp({
+			create: { width: 256, height: 256, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
+		})
+
+		const positions = ["southwest", "southeast", "northwest", "northeast"]
+
+		let compose: OverlayOptions[] = []
+		for (let i = 0; i < imgs.length; i++) {
+			imgs[i].resize(128, 128, { kernel: "lanczos3" })
+			const buffer = await imgs[i].toBuffer().catch((err) => {})
+			if (!buffer) continue
+			compose.push({ input: buffer, gravity: positions[i] })
+		}
+
+		if (compose.length === 0) return
+
+		img.composite(compose)
+
+		x = Math.round(x / 2)
+		y = Math.round(y / 2)
+
+		await img
+			.toFile(mapPath + z + "/" + p + "/" + x + "-" + y + ".png")
+			.catch((error) => console.error(error))
+	}
+
+	for (let z = 1; z >= -4; z--) {
+		console.log("Downscaling zoom", z, "/ -4")
+
+		for (let p = 0; p < chunksU.length; p++) {
+			console.log("Downscaling zoom", z, "/ -4 plane", p, "/ 3")
+			for (let y = 0; y < hi.y; y = y + 2) {
+				for (let x = 0; x < hi.x; x = x + 2) {
+					const current = [
+						sharp(mapPath + (z + 1) + "/" + p + "/" + x + "-" + y + ".png"),
+						sharp(mapPath + (z + 1) + "/" + p + "/" + (x + 1) + "-" + y + ".png"),
+						sharp(mapPath + (z + 1) + "/" + p + "/" + x + "-" + (y + 1) + ".png"),
+						sharp(mapPath + (z + 1) + "/" + p + "/" + (x + 1) + "-" + (y + 1) + ".png")
+					]
+
+					await createDownScaledTiles(current, z, p, x, y)
+				}
+			}
+		}
+
+		hi.y = Math.ceil(hi.y / 2)
+		hi.x = Math.ceil(hi.x / 2)
+	}
+}
+
+await upScale()
+await downScale()
 
 console.log("Done.")
