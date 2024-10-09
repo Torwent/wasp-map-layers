@@ -25,16 +25,16 @@ async function unzipFile() {
 	await zip.close()
 }
 
-await unzipFile()
-const planes = await readdir(mapPath + "2/")
-
-for (let i = -4; i <= 4; i++) {
-	if (i === 2) continue
-	for (let j = 0; j < planes.length; j++) {
-		if (!existsSync(mapPath + i + "/" + planes[j] + "/"))
-			mkdirSync(mapPath + i + "/" + planes[j] + "/", { recursive: true })
+for (let zoom = -4; zoom <= 4; zoom++) {
+	if (zoom === 2) continue
+	for (let plane = 0; plane <= 3; plane++) {
+		if (!existsSync(mapPath + zoom + "/" + plane + "/"))
+			mkdirSync(mapPath + zoom + "/" + plane + "/", { recursive: true })
 	}
 }
+
+await unzipFile()
+const planes = await readdir(mapPath + "2/")
 
 for (let i = 0; i < planes.length; i++) {
 	const files = await readdir(mapPath + "2/" + planes[i] + "/")
