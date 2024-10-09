@@ -3,9 +3,10 @@ import { existsSync, mkdirSync } from "node:fs"
 import { readdir } from "node:fs/promises"
 import sharp, { type OverlayOptions } from "sharp"
 
+const start = performance.now()
 const mapPath = "map/"
-const chunksU: string[][] = []
-const chunksD: number[][] = []
+const chunksUp: string[][] = []
+const chunksDown: number[][] = []
 
 async function unzipFile() {
 	const zipFile = "files/map.zip"
@@ -25,7 +26,6 @@ async function unzipFile() {
 }
 
 await unzipFile()
-
 const planes = await readdir(mapPath + "2/")
 
 for (let i = -4; i <= 4; i++) {
@@ -38,13 +38,13 @@ for (let i = -4; i <= 4; i++) {
 
 for (let i = 0; i < planes.length; i++) {
 	const files = await readdir(mapPath + "2/" + planes[i] + "/")
-	chunksU.push(files)
+	chunksUp.push(files)
 }
 
 let lo = { x: 9999, y: 9999 }
 let hi = { x: 0, y: 0 }
-for (let i = 0; i < chunksU[0].length; i++) {
-	const file = chunksU[0][i]
+for (let i = 0; i < chunksUp[0].length; i++) {
+	const file = chunksUp[0][i]
 	const match = file.match(/(\d+)-(\d+)/)
 	if (match == null) continue
 
@@ -57,13 +57,14 @@ for (let i = 0; i < chunksU[0].length; i++) {
 }
 
 for (let y = 0; y <= hi.y; y++) {
-	chunksD.push([])
+	chunksDown.push([])
 	for (let x = 0; x <= hi.x; x++) {
-		chunksD[y].push(x)
+		chunksDown[y].push(x)
 	}
 }
 
 async function upScale() {
+	const startUpscale = performance.now()
 	console.log("Starting upscaling for zoom 3 and 4.")
 
 	const positions: sharp.Region[] = [
@@ -94,9 +95,10 @@ async function upScale() {
 		}
 	}
 
-	for (let p = 0; p < chunksU.length; p++) {
-		for (let c = 0; c < chunksU[p].length; c++) {
-			const chunkfile = chunksU[p][c]
+	for (let p = 0; p < chunksUp.length; p++) {
+		console.log("Upscaling zoom 3 and 4 plane", p, "/ 3")
+		for (let c = 0; c < chunksUp[p].length; c++) {
+			const chunkfile = chunksUp[p][c]
 			const match = chunkfile.match(/(\d+)-(\d+)/)
 			if (match == null) continue
 
@@ -107,10 +109,11 @@ async function upScale() {
 		}
 	}
 
-	console.log("Upscalling done.")
+	console.log(`☝️ Upscalling took ${(performance.now() - startUpscale).toFixed(2)} ms to finish!`)
 }
 
 async function downScale() {
+	const startDownscale = performance.now()
 	console.log("Starting downscaling for zooms 1, 0, -1, -2, -3 and -4.")
 
 	async function createDownScaledTiles(
@@ -149,7 +152,7 @@ async function downScale() {
 	for (let z = 1; z >= -4; z--) {
 		console.log("Downscaling zoom", z, "/ -4")
 
-		for (let p = 0; p < chunksU.length; p++) {
+		for (let p = 0; p < chunksUp.length; p++) {
 			console.log("Downscaling zoom", z, "/ -4 plane", p, "/ 3")
 			for (let y = 0; y < hi.y; y = y + 2) {
 				for (let x = 0; x < hi.x; x = x + 2) {
@@ -168,9 +171,13 @@ async function downScale() {
 		hi.y = Math.ceil(hi.y / 2)
 		hi.x = Math.ceil(hi.x / 2)
 	}
+	console.log(
+		`👇 Downscalling took ${(performance.now() - startDownscale).toFixed(2)} ms to finish!`
+	)
 }
 
-await upScale()
-await downScale()
+console.log(`└🛠️ Setup took ${(performance.now() - start).toFixed(2)} ms to finish!`)
 
-console.log("Done.")
+await Promise.all([upScale(), downScale()])
+
+console.log(`└✅ Done! Took ${(performance.now() - start).toFixed(2)} ms to finish!`)
