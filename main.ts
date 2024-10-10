@@ -4,12 +4,14 @@ import { readdir } from "node:fs/promises"
 import sharp, { type OverlayOptions } from "sharp"
 
 const start = performance.now()
-const mapPath = "map/"
+
+const mapPath = import.meta.dir + "/map/"
+
 const chunksUp: string[][] = []
 const chunksDown: number[][] = []
 
 async function unzipFile() {
-	const zipFile = "files/map.zip"
+	const zipFile = import.meta.dir + "/files/map.zip"
 	const extractPath = mapPath + "2/"
 
 	if (existsSync(extractPath)) {
